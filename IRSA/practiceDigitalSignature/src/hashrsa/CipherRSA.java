@@ -21,6 +21,7 @@ import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.KeyFactory;
@@ -41,7 +42,10 @@ import java.util.logging.Logger;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.KeyGenerator;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.swing.JOptionPane;
 
@@ -62,6 +66,13 @@ public class CipherRSA {
         this.key2=keyRSA2;        
         this.text = read(file);
     }
+    public CipherRSA(String file, String keyRSA1, boolean ver) throws InvalidKeySpecException {
+        this.verifyMode = ver;
+        this.path = file;
+        this.key1 = keyRSA1;        
+        this.text = read(file);
+    }
+    
 
     private static String getHash(String txt, String hashType) {
         try {
@@ -85,6 +96,81 @@ public class CipherRSA {
         String h = CipherRSA.getHash(text, "MD5");       
         String a = path.substring(path.lastIndexOf('\\') + 1, path.length() - 4) + "_MD5.txt";
         write(a, text , encryptRSA(h,0));
+        return "si";
+    }
+    
+    /* Retorna un hash MD5 a partir de un texto */
+    public String confidenciability() throws Exception {
+        String h = CipherRSA.getHash(text, "MD5");       
+        String a = path.substring(path.lastIndexOf('\\') + 1, path.length() - 4) + "_M_hash.txt";
+        System.out.println("path "+a);
+        System.out.println("hash "+h);
+        String tres=encryptRSA(h,0);
+        System.out.println("firmado"+tres);
+        if(tres==null)
+            System.out.println("es nulo");
+        if(tres.equals(""))
+            System.out.println("es vacio");
+        writeCon(a, text,tres);
+        return "si";
+    }
+    
+    public boolean verifyR() throws Exception {
+        
+        String[] a = text.split("///");
+        String a1=a[0].substring(0, a[0].length()-1);
+        System.out.println(text);
+        System.out.println(a.length);
+        boolean res=false;
+        if (a.length == 2) {
+            
+            String[] beforeDecrypt=a1.substring(1, a1.length()).split("\n");    
+            System.out.println(beforeDecrypt.length);
+            if(beforeDecrypt.length!=1){
+            for (int i=0;i<beforeDecrypt.length;i++) {
+                 decryptionFinal = decryptionFinal+"\n"+decryptRSA(beforeDecrypt[i],1);
+                }   
+            res=decryptRSA(a[1],0).equals(CipherRSA.getHash(decryptionFinal.substring(1, decryptionFinal.length()),"MD5"));
+            }else {
+               String prueba=decryptRSA(a1,1);
+               decryptionFinal=prueba;
+               res=decryptRSA(a[1],0).equals(CipherRSA.getHash(prueba,"MD5"));
+            }
+          
+          if(res){
+                String name = path.substring(path.lastIndexOf('\\') + 1, path.length() - 4) + "_Verify.txt";
+                write(name,decryptionFinal,a[1]);
+            }
+          
+          return res;
+        }
+        return res;
+    }
+    
+    /* Retorna un hash MD5 a partir de un texto */
+    public String integrity() throws Exception {        
+        String a = path.substring(path.lastIndexOf('\\') + 1, path.length() - 4) + "_Encrypt.txt";
+        System.out.println("voy a guardar "+a);
+        String keyR = generateRKey();
+        this.key2 = this.key1; 
+        String uno=encryptRSA(keyR,1);
+        System.out.println("llave uno"+uno);
+        String dos=AES_EN_CBC(text,keyR);
+        System.out.println("llave dos"+dos);        
+        writeCon(a,uno , dos);
+        return "si";
+    }
+    /* Retorna un hash MD5 a partir de un texto */
+    public String integrityR() throws Exception {        
+        String a = path.substring(path.lastIndexOf('\\') + 1, path.length() - 4) + "_Decrypt.txt";
+        System.out.println("voy a guardar "+a);
+        String keyR = generateRKey();
+        this.key2 = this.key1; 
+        String uno=encryptRSA(keyR,1);
+        System.out.println("llave uno"+uno);
+        String dos=AES_EN_CBC(text,keyR);
+        System.out.println("llave dos"+dos);        
+        writeCon(a,uno , dos);
         return "si";
     }
 
@@ -228,13 +314,37 @@ public class CipherRSA {
         }
         return null;
     }
+        private String generateRKey() throws NoSuchAlgorithmException{
+        KeyGenerator gen = KeyGenerator.getInstance("AES");
+        gen.init(128); /* 128-bit AES */
+        SecretKey secret = gen.generateKey();
+        byte[] binary = secret.getEncoded();
+        String text = String.format("%032X", new BigInteger(+1, binary));
+        System.out.println(text);
+        return text;
+        }
     
-
+        public String AES_EN_CBC(String text,String keyR){
+        String result = null;
+            try{
+            String ivi="0123456789123456";
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5PADDING");
+            Key key = new SecretKeySpec(keyR.getBytes(), "AES");
+            IvParameterSpec iv = new IvParameterSpec(ivi.getBytes("UTF-8"));
+            cipher.init(Cipher.ENCRYPT_MODE, key,iv);
+            byte[] imageModified = cipher.doFinal(text.getBytes());
+            result=imageModified.toString();
+        }catch(Exception e){ 
+            e.printStackTrace();
+        }
+            return result;
+    }
 
     private String encryptRSA(String message, Integer modeOperador) throws Exception {
         try {
             java.security.Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
             if(modeOperador==0){
+                System.out.println("llave 1:"+key1);
             File f = new File(key1);
             FileInputStream fis = new FileInputStream(f);
             DataInputStream dis = new DataInputStream(fis);
@@ -310,6 +420,16 @@ public class CipherRSA {
             }
             writer.close();
         } catch (IOException ex) {
+            Logger.getLogger(CipherRSA.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+    
+    private void writeCon(String file,String text, String EncryptedHash) throws Exception {
+        try {
+             BufferedWriter writer = new BufferedWriter(new FileWriter(file));
+             writer.write(text+"\n///"+EncryptedHash);
+             writer.close();
+            } catch (IOException ex) {
             Logger.getLogger(CipherRSA.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
